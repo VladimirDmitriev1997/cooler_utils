@@ -111,7 +111,7 @@ def cis_eig_outofcore(clr,
     for eval_col in eigval_columns:
         eigvals_table[eval_col] = np.nan
     
-    for i, res in enumerate(results):
+    for _, res in enumerate(results):
         _region = res[0]
         _eigvals = res[1]
         _eigvecs = res[2]
@@ -169,15 +169,17 @@ def _cis_eig_outofcore_reg(clr,
     else:
         bad_bins_region = None
     
-    
-    S = S.to_numpy()
+
+    if balance:
+        S = expected_reg['balanced.avg'].to_numpy()
+    else:
+        S = expected_reg['count.avg'].to_numpy()
     S[~np.isfinite(S)]=1
     
-    region_boundaries = clr.matrix(balance=balance)._fetch(region)
-    
-    region_shape = (region_boundaries[1] - region_boundaries[0], region_boundaries[3]-region_boundaries[2])
+    region_extent = clr.extent(region)
+    mask = clr.bins()[region_extent[0]: region_extent[1]]['weight'].to_numpy().is_finite()
 
-    mask, mean = compute_mask_and_mean(clr, region_boundaries, balance, region_shape, block_size)
+    mean = cis_mean(clr, region_extent, balance, region_shape, block_size)
 
 
     if region_shape[0] <= ignore_diags + 3 or mask.sum() <= ignore_diags + 3:
@@ -206,8 +208,9 @@ def _cis_eig_outofcore_reg(clr,
     #ordering 
     eigvecs = eigvecs.T
     order = np.argsort(-np.abs(eigvals))
-    eigvecs=eigvecs[order]
-    eigvals=eigvals[order]
+    eigvecs = eigvecs[order]
+    eigvals = eigvals[order]
+    
     #completing
     eigvecs_full = np.full((n_eigs, region_shape[0]), np.nan)
     for i in range(n_eigs):
@@ -248,22 +251,18 @@ def compute_mask_and_mean(c,
     N = region_boundaries[1] - region_boundaries[0]
     part = N // block_size
     
+    pixel_sum, pixel_n = 0, 0
     for x in range(0, part+1):
-        _block = c.matrix(balance = balance, sparse=False)[
-            region_boundaries[0]+x*block_size : region_boundaries[0]+min((x+1)*block_size, N),
+        _block = c.matrix(balance = balance)[
+            region_boundaries[0]+x*block_size : region_boundaries[0] + min((x+1)*block_size, N),
             region_boundaries[2] : region_boundaries[3]]
-        _block[~np.isfinite(_block)] = 0 
-        mask[x*block_size:min((x+1)*block_size, N)] = _block.sum(axis=1)
-    
-    #for i in range(map_coordinates[1]-map_coordinates[0]):
         
-    #    _row = c.matrix(balance = balance,sparse=False)[map_coordinates[0]:map_coordinates[1],i]
-    #    _row[~np.isfinite(_row)] = 0
-    #    mask[i] = _row.sum()
-    mean = mask.sum()/((region_boundaries[1]-region_boundaries[0])*(region_boundaries[3]-region_boundaries[2]))
-    mask = mask > 0
+        pixel_sum += np.nansum(_block)
+        pixel_n += _block.is_finite().sum()
     
-    return mask, mean 
+    mean = pixel_sum / pixel_n
+    
+    return mean 
 
 
 def multiply_A_block(v, 

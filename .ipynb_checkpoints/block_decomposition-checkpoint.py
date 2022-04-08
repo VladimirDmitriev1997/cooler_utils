@@ -27,8 +27,13 @@ The only difference is block structure of eigendecomposition
 
 """
 
+"""
+TODO: add .gitignore (ignore .pyc and core)
+TODO: configure cmd git to store the login token
+"""
 
-def cys_eig_blockwise(c, 
+
+def cis_eig_blockwise(c, 
                       view_df=None,
                       balance=True,
                       block_size=10000,
@@ -45,6 +50,8 @@ def cys_eig_blockwise(c,
                       bad_bins=None):
     
     """
+    TODO: comply with the numpydoc style, like other cooltools functions
+    
     Compute eigenvectors for cis, uploading matrix blockwise
     
     c - cooler
@@ -82,7 +89,7 @@ def cys_eig_blockwise(c,
     
     
     
-    compute_eig = lambda reg, loc_expected: _cys_eig_blockwise(c=c, 
+    compute_eig = lambda reg, loc_expected: _cis_eig_blockwise(c=c, 
             _region=reg, 
             balance=balance,
             S=loc_expected,
@@ -133,7 +140,7 @@ def cys_eig_blockwise(c,
     return eigvals_table, eigvec_table
 
 
-def _cys_eig_blockwise(c, 
+def _cis_eig_blockwise(c, 
             _region, 
             balance,
             S,
@@ -261,8 +268,8 @@ def compute_mask_and_mean(c,
     
     mask = np.empty(region_shape[0])
     
-    N = region_boundaries[1]-region_boundaries[0]
-    part = N//block_size
+    N = region_boundaries[1] - region_boundaries[0]
+    part = N // block_size
     
     for x in range(0, part+1):
         _block = c.matrix(balance = balance,sparse=False)[region_boundaries[0]+x*block_size:region_boundaries[0]+min((x+1)*block_size, N),region_boundaries[2]:region_boundaries[3]]
@@ -407,13 +414,13 @@ def BlockMult(block_size,
         
             _block[:, bad_bins_region] = np.nan
         
-            bad_bins_region -=shift
-            bad_bins_region=bad_bins_region[(bad_bins_region>=0) & (bad_bins_region<_block.shape[0])]
+            bad_bins_region -= shift
+            bad_bins_region = bad_bins_region[(bad_bins_region>=0) & (bad_bins_region<_block.shape[0])]
             _block[bad_bins_region, :] = np.nan
     
     #_row, row_sum = fetch_row(i, c, fetching_params)#
     #fix Nans/ infs with zeros
-    _block[~np.isfinite(_block)] = 0#### sparsed
+    _block[~np.isfinite(_block)] = 0
         
         
     #ignoring the diags

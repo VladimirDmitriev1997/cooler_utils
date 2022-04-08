@@ -33,7 +33,8 @@ TODO: configure cmd git to store the login token
 """
 
 
-def cis_eig_blockwise(c, 
+def cis_eig_blockwise(clr, 
+                      expected,
                       view_df=None,
                       balance=True,
                       block_size=10000,
@@ -44,9 +45,6 @@ def cis_eig_blockwise(c,
                       sort_metric=None, 
                       divide_by_mean=False, 
                       subtract_mean=False,
-                      diagonal_decay=None,
-                      collect_decay=None,
-                      collect_mean_mask=None,
                       bad_bins=None):
     
     """
@@ -70,29 +68,26 @@ def cis_eig_blockwise(c,
     
     """
     
-    view_df = make_cooler_view(c) if view_df is None else view_df
+    view_df = make_cooler_view(clr) if view_df is None else view_df
+    # TODO: check for consistency between the provided view_df and the one from expected
+    # TODO: drop bad_bins, use bad_bins from the cooler
 
-    
-    if diagonal_decay == None:
-        diagonal_decay = expected_cis(clr=c, 
-                                      view_df=view_df,
-                                      ignore_diags=ignore_diags)
-        if collect_decay:
-            with open(collect_deacy, 'wb') as f:
-                pickle.dump(diagonal_decay, f)
-            
-            
+    clr_weight_name="weight"
+    if phasing_track is not None:
+        phasing_track = align_track_with_cooler(
+            phasing_track,
+            clr,
+            view_df=view_df,
+            clr_weight_name=clr_weight_name,
+            mask_bad_bins=True,
+        )
 
-    
-    
-    region_decay_pair = [(i, diagonal_decay[diagonal_decay["region1"]==i[0]]["balanced.avg"]) for i in view_df.values]
-    
-    
-    
-    compute_eig = lambda reg, loc_expected: _cis_eig_blockwise(c=c, 
-            _region=reg, 
+    compute_eig = lambda region_name: _cis_eig_blockwise_reg(
+            clr=clr, 
+            region_name=region_name,
+            expected=expected,
+            view_df=view_df, 
             balance=balance,
-            S=loc_expected,
             block_size=block_size,
             n_eigs=n_eigs, 
             phasing_track=phasing_track, 
@@ -101,24 +96,12 @@ def cis_eig_blockwise(c,
             sort_metric=sort_metric, 
             divide_by_mean=divide_by_mean, 
             subtract_mean=subtract_mean,
-            collect_mean_mask=collect_mean_mask,
             bad_bins=bad_bins)
     
-    results = [compute_eig(reg, loc_expected) for reg, loc_expected in region_decay_pair]
-    
-    bins = c.bins()[:]
-    clr_weight_name="weight"
-    if phasing_track is not None:
-        phasing_track = align_track_with_cooler(
-            phasing_track,
-            c,
-            view_df=view_df,
-            clr_weight_name=clr_weight_name,
-            mask_bad_bins=True,
-        )
-    
+    results = [compute_eig(region['name']) for _, region in view_df.iterrows()]
+ 
     # prepare output table for eigen vectors
-    eigvec_table = bins.copy()
+    eigvec_table = clr.bins()[:]
     eigvec_columns = [f"E{i + 1}" for i in range(n_eigs)]
     for ev_col in eigvec_columns:
         eigvec_table[ev_col] = np.nan
@@ -140,10 +123,11 @@ def cis_eig_blockwise(c,
     return eigvals_table, eigvec_table
 
 
-def _cis_eig_blockwise(c, 
-            _region, 
-            balance,
-            S,
+def _cis_eig_blockwise_reg(clr, 
+            region_name, 
+            view_df,
+            expected,
+            balance=True,
             block_size=100,
             n_eigs=3, 
             phasing_track=None, 
@@ -152,7 +136,6 @@ def _cis_eig_blockwise(c,
             sort_metric=None, 
             divide_by_mean=False, 
             subtract_mean=False,
-            collect_mean_mask=None,
             bad_bins=None):
     
     
@@ -175,41 +158,35 @@ def _cis_eig_blockwise(c,
     bad_bins - indecies of bins to exclude manually
     """
     
-    _region = _region[:3]
-    
-    #bad bins 
+    region = view_df.set_index('name').loc[region_name][['chrom', 'start', 'end']]
+    expected_reg = expected[(expected['region1'] == region_name) & (expected['region2']== region_name)]
     
     if bad_bins is not None:
         # filter bad_bins for the _region and turn relative:
-        lo, hi = c.extent(_region)
+        lo, hi = clr.extent(region)
         bad_bins_region = bad_bins[(bad_bins >= lo) & (bad_bins < hi)]
         bad_bins_region -= lo
     else:
         bad_bins_region = None
     
     
-    
     S = S.to_numpy()
     S[~np.isfinite(S)]=1
     
-    region_boundaries = c.matrix(balance=balance)._fetch(_region)
+    region_boundaries = clr.matrix(balance=balance)._fetch(region)
     
     region_shape = (region_boundaries[1] - region_boundaries[0], region_boundaries[3]-region_boundaries[2])
 
-    
-    mask, mean = compute_mask_and_mean(c, region_boundaries, balance, region_shape, block_size)
-    
-    if collect_mean_mask is not None:
-        with open(collect_mean_mask+'_'+str(_region[0]), 'wb') as f:
-            pickle.dump((mask, mean), f)
+    mask, mean = compute_mask_and_mean(clr, region_boundaries, balance, region_shape, block_size)
+
 
     if region_shape[0] <= ignore_diags + 3 or mask.sum() <= ignore_diags + 3:
-        return _region, np.array([np.nan for i in range(n_eigs)]), np.array([np.ones(region_shape[0]) * np.nan for i in range(n_eigs)])
+        return region, np.array([np.nan for i in range(n_eigs)]), np.array([np.ones(region_shape[0]) * np.nan for i in range(n_eigs)])
     
     #for reduction
     mask_shape = mask[mask].shape[0]
     L = LinearOperator((mask_shape, mask_shape), lambda x: multiply_A_block_par(x, 
-                                                     c, 
+                                                     clr, 
                                                      mask, 
                                                      mean, 
                                                      region_boundaries, 
@@ -244,7 +221,7 @@ def _cis_eig_blockwise(c,
     if phasing_track is not None:
         eigvals, eigvecs = _phase_eigs(eigvals, eigvecs, phasing_track, sort_metric)
 
-    return _region, eigvals, eigvecs
+    return region, eigvals, eigvecs
 
 
 
@@ -272,7 +249,9 @@ def compute_mask_and_mean(c,
     part = N // block_size
     
     for x in range(0, part+1):
-        _block = c.matrix(balance = balance,sparse=False)[region_boundaries[0]+x*block_size:region_boundaries[0]+min((x+1)*block_size, N),region_boundaries[2]:region_boundaries[3]]
+        _block = c.matrix(balance = balance, sparse=False)[
+            region_boundaries[0]+x*block_size : region_boundaries[0]+min((x+1)*block_size, N),
+            region_boundaries[2] : region_boundaries[3]]
         _block[~np.isfinite(_block)] = 0 
         mask[x*block_size:min((x+1)*block_size, N)] = _block.sum(axis=1)
     

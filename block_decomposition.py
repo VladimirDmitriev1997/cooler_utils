@@ -27,6 +27,11 @@ The only difference is block structure of eigendecomposition
 
 """
 
+"""
+TODO: add .gitignore (ignore .pyc and core)
+TODO: configure cmd git to store the login token
+"""
+
 
 def cis_eig_blockwise(c, 
                       view_df=None,

@@ -33,7 +33,7 @@ TODO: configure cmd git to store the login token
 """
 
 
-def cis_eig_blockwise(clr, 
+def cis_eig_outofcore(clr, 
                       expected,
                       view_df=None,
                       balance=True,
@@ -82,7 +82,7 @@ def cis_eig_blockwise(clr,
             mask_bad_bins=True,
         )
 
-    compute_eig = lambda region_name: _cis_eig_blockwise_reg(
+    compute_eig = lambda region_name: _cis_eig_outofcore_reg(
             clr=clr, 
             region_name=region_name,
             expected=expected,
@@ -123,7 +123,7 @@ def cis_eig_blockwise(clr,
     return eigvals_table, eigvec_table
 
 
-def _cis_eig_blockwise_reg(clr, 
+def _cis_eig_outofcore_reg(clr, 
             region_name, 
             view_df,
             expected,
